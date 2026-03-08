@@ -124,11 +124,22 @@ INTEGRACAO_API__X_API_KEY=
 O usuário recebe o template:
 
 - saudação com primeiro nome
+- aviso de SLA conversacional: `Esta solicitação terá duração máxima de 5 minutos`
 - opções:
-  - `1 Defesa Civil`
-  - `2 Bombeiros`
-  - `3 Polícia Militar`
+  - `1 Defesa Civil` (resgate e áreas de risco)
+  - `2 Direitos Humanos` (desaparecimento e violações de direitos)
+  - `3 Desenvolvimento Social` (falta de alimentos e vulnerabilidade social)
+  - `4 Assistência Social` (famílias desalojadas e proteção social imediata)
+  - `5 EMCASA` (moradia/habitação e casa destruída)
+  - `6 Defesa Animal` (maus-tratos e animais em risco)
+  - `7 Canil Municipal` (recolhimento e manejo animal)
+  - `8 Procon` (defesa do consumidor e denúncias de preço)
+  - `9 Secretaria de Comunicação` (informações públicas e orientação oficial)
   - `0 Encerrar`
+
+Comando adicional:
+
+- `menu`: reabre o menu inicial em qualquer etapa do atendimento.
 
 ### 2) Encerramento manual
 
@@ -141,19 +152,19 @@ Resposta:
 
 - `Agradecemos pelo contato. Se precisar de algo, entre em contato.`
 
-### 3) Opções 1-3
+### 3) Opções 1-9
 
-Após escolher `1`, `2` ou `3`, o bot responde:
+Após escolher `1` a `9`, o bot responde:
 
 - `Descreva com detalhes sua solicitação`
 
 Em seguida entra na etapa de coleta obrigatória.
 
-### 4) Coleta obrigatória (1-3)
+### 4) Coleta obrigatória (1-9)
 
 Antes de enviar para IA, exige:
 
-- Endereço completo
+- Endereço completo (com número aproximado)
 - Vítimas (`Sim/Não/Não sei`)
 - Imagem ou vídeo obrigatório
 
@@ -162,6 +173,7 @@ Regras:
 - Se o endereço já vier na descrição inicial, não solicita novamente esse campo.
 - Se faltar algo, retorna apenas pendências faltantes.
 - Mídia é salva em `./public/assets/media/{uuid}.{ext}`.
+- Se o usuário enviar apenas mídia (sem texto), a mídia é aceita e o bot solicita somente os campos restantes.
 - Mapeamento de vítimas para `pessoas_afetadas`:
   - `Sim` = 1
   - `Não` = 0
@@ -177,13 +189,13 @@ Se houver inatividade de 15 minutos, o usuário é avisado:
 
 Após cada atendimento concluído, o worker envia:
 
-1. JSON da IA
+1. JSON da IA (com metadados operacionais)
 2. Mensagem humanizada
 3. `Podemos ajudar em algo mais?`
 
 Interpretação de resposta:
 
-- intenção positiva (`sim`, `claro`, `pode`, `continuar`, `prosseguir`) -> `Descreva sua solicitação...`
+- intenção positiva (`sim`, `claro`, `pode`, `continuar`, `prosseguir`) -> abre um novo ciclo e reenvia o menu inicial
 - intenção de encerramento (`não`, `nao`, `encerrar`, `0`, `obrigado`, `valeu` e variações) -> encerra
 - outros textos -> prompt curto humanizado pedindo confirmação (`sim`/`não`)
 
@@ -199,20 +211,23 @@ Fila:
 Tipos de job (`IncidentJobData`):
 
 - `categorized`
-  - usado para menu 1-3
-  - inclui `service` fixo
+  - usado para menu 1-9
+  - inclui `service` de contexto selecionado no menu
 - `followup_generic`
   - usado no fluxo de continuidade
   - sem `service`
 
 ## IA (Groq)
 
-### Fluxo categorizado (menu 1-3)
+### Fluxo categorizado (menu 1-9)
 
 Método: `generateCategorizedJson({ service, message })`
 
 - Prompt base + orientação por serviço
-- `orgao_responsavel` é fixado pelo serviço escolhido (determinístico)
+- `orgao_responsavel` é definido pela categoria classificada (determinístico, conforme mapeamento do Mermaid)
+- JSON final inclui:
+  - `protocolo_atendimento` (numérico, 10 dígitos, não repetido em memória do worker)
+  - `media_hash` (SHA-256 da mídia persistida com extensão, ex.: `{hash}.{ext}`)
 - valida JSON e normaliza schema
 - fallback controlado em caso de erro/JSON inválido
 
@@ -223,11 +238,13 @@ Schema esperado:
   "categoria": "string",
   "prioridade": "CRITICA|ALTA|MEDIA|BAIXA",
   "bairro": "string",
-  "orgao_responsavel": "Defesa Civil|Bombeiros|Polícia Militar",
+  "orgao_responsavel": "Defesa Civil|Direitos Humanos|Desenvolvimento Social|Assistência Social|EMCASA|Defesa Animal|Canil Municipal|Procon|Secretaria de Comunicação",
   "descricao_resumida": "string",
   "pessoas_afetadas": 1,
   "animais_afetados": 0,
-  "risco_imediato": false
+  "risco_imediato": false,
+  "protocolo_atendimento": "1234567890",
+  "media_hash": "abc123...def456.jpg"
 }
 ```
 
@@ -299,6 +316,9 @@ Payload inclui:
 - `[QUEUE] job received`
 - `[AI] classified`
 - `[DEDUP] updated reports`
+- `[WA] media detected`
+- `[WA] media persisted`
+- `[QUEUE] failed to append metadata to ai json` (somente em falha de hash/metadado)
 - `[WA] response sent`
 - `[INTEGRACAO_API][PREVIEW_JSON] ...`
 
@@ -332,9 +352,15 @@ Há proteção de deduplicação de eventos recebidos por `messageId` em memóri
 ## Estado atual das opções do menu
 
 - `1 Defesa Civil`: ativo com IA + coleta obrigatória
-- `2 Bombeiros`: ativo com IA + coleta obrigatória
-- `3 Polícia Militar`: ativo com IA + coleta obrigatória
-- `4-6`: atualmente não disponíveis no fluxo ativo
+- `2 Direitos Humanos`: ativo com IA + coleta obrigatória
+- `3 Desenvolvimento Social`: ativo com IA + coleta obrigatória
+- `4 Assistência Social`: ativo com IA + coleta obrigatória
+- `5 EMCASA`: ativo com IA + coleta obrigatória
+- `6 Defesa Animal`: ativo com IA + coleta obrigatória
+- `7 Canil Municipal`: ativo com IA + coleta obrigatória
+- `8 Procon`: ativo com IA + coleta obrigatória
+- `9 Secretaria de Comunicação`: ativo com IA + coleta obrigatória
+- `0 Encerrar`: encerra conversa imediatamente
 
 ## Observação sobre código legado
 

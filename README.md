@@ -1,6 +1,6 @@
 # JFBot
 
-Bot de atendimento via WhatsApp com NestJS + Baileys, processamento assíncrono com BullMQ/Redis e classificação por IA (Groq).
+Bot de atendimento via WhatsApp com NestJS + processamento assíncrono com BullMQ/Redis e classificação por IA (Groq).
 
 ## Objetivo
 
@@ -17,7 +17,6 @@ Sem banco de dados relacional no momento. O estado operacional é persistido em 
 - Node.js
 - NestJS
 - TypeScript
-- Baileys
 - Redis (ioredis)
 - BullMQ
 - Groq SDK
@@ -32,7 +31,7 @@ Sem banco de dados relacional no momento. O estado operacional é persistido em 
 
 Fluxo principal:
 
-1. WhatsApp (Baileys socket)
+1. WhatsApp (socket)
 2. `src/bot/whatsapp.service.ts` (orquestra conversa)
 3. `incident-queue` (BullMQ)
 4. `src/queue/incident.worker.ts`
@@ -52,7 +51,7 @@ Fluxo principal:
 - `src/groq/groq.service.ts`: geração de JSON e mensagens humanizadas
 - `src/dedup/dedup.service.ts`: agregação por `categoria+bairro` com TTL
 - `src/integracao-api/integracao-api.service.ts`: preview do JSON que iria para API externa
-- `src/storage/auth.store.ts`: persistência de sessão Baileys em `./auth/auth.json`
+- `src/storage/auth.store.ts`: persistência de sessão em `./auth/auth.json`
 - `src/utils/logger.ts`: logs padronizados
 
 ## Requisitos
@@ -181,9 +180,9 @@ Regras:
 
 ### 5) Inatividade
 
-Se houver inatividade de 15 minutos, o usuário é avisado:
+Se houver inatividade de 5 minutos, o usuário é avisado:
 
-- `Encerramos sua conversa por 15 minutos de inatividade. Pode continuar por aqui normalmente.`
+- `Encerramos sua solicitação devido à inatividade de 5 minutos. Pode continuar por aqui normalmente.`
 
 ### 6) Follow-up pós-atendimento
 

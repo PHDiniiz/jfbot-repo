@@ -113,6 +113,7 @@ GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS=320
 GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS=220
 GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS=220
 FOLLOWUP_HISTORY_MESSAGES=12
+SERVER_IDLE_RESTART_MINUTES=30
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -132,6 +133,7 @@ Referência das variáveis de IA e contexto:
 | `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`   |  `220` | Limite de tokens da confirmação humanizada no fluxo categorizado.                               |
 | `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS` |  `220` | Limite de tokens da confirmação humanizada no fluxo genérico de continuidade.                   |
 | `FOLLOWUP_HISTORY_MESSAGES`                   |   `12` | Quantidade de mensagens recentes enviada como contexto no follow-up.                            |
+| `SERVER_IDLE_RESTART_MINUTES`                 |   `30` | Reinício automático do processo sem interação de usuários (30 minutos).                         |
 
 ### Regras Redis
 
@@ -336,6 +338,11 @@ Payload inclui:
 - `linkDaMidia` (quando houver mídia)
 - `payloadIa` (JSON da IA, enviado como objeto)
 
+Observações:
+
+- URL de integração hardcoded no serviço: `https://api.durch.com.br/sos-jf/ocorrencia`.
+- `INTEGRACAO_API__X_API_KEY` não é mais usado no `wbjf-api`.
+
 ## Persistência local
 
 - Sessão/auth do WhatsApp: `./auth/auth.json`
@@ -362,6 +369,7 @@ Observação operacional:
 
 - o bot processa `messages.upsert` dos tipos `notify` e `append`
 - isso evita perda de resposta após logs como `Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer`
+- sem interação de usuários por 30 minutos, o processo encerra com `exit 0` para reinício automático via supervisor.
 
 ## Troubleshooting
 
@@ -423,6 +431,6 @@ Foram adicionados testes de regressão para os fluxos críticos recentes:
 
 Existe uma implementação antiga em `src/whatsapp/*` (gateway e serviço antigos). O fluxo em produção atual está em `src/bot/*`, que é o módulo importado pelo `AppModule`.
 
-## Observação sobre o código
+## Observação sobre o código 🔐
 
-Existe um repositório diferente contendo o código fonte todo do projeto feito em NestJS. Por questões de segurança e privacidade, este código não estará disponível para visualização.
+Existe um repositório diferente contendo o código fonte completo do projeto desenvolvido em NestJS. Por questões de segurança e privacidade, este código não estará disponível para visualização. Issues devem ser reportadas neste repositório.

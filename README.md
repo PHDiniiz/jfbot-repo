@@ -37,7 +37,7 @@ Fluxo principal:
 4. `src/queue/incident.worker.ts`
 5. IA (`src/groq/groq.service.ts`)
 6. Deduplicação Redis (`src/dedup/dedup.service.ts`)
-7. Resposta ao usuário + preview de integração externa
+7. Resposta ao usuário + integração externa
 
 ## Estrutura Relevante
 
@@ -50,7 +50,7 @@ Fluxo principal:
   - `incident.worker.ts`: processamento assíncrono
 - `src/groq/groq.service.ts`: geração de JSON e mensagens humanizadas
 - `src/dedup/dedup.service.ts`: agregação por `categoria+bairro` com TTL
-- `src/integracao-api/integracao-api.service.ts`: preview do JSON que iria para API externa
+- `src/integracao-api/integracao-api.service.ts`: envio do payload de ocorrência para API externa
 - `src/storage/auth.store.ts`: persistência de sessão em `./auth/auth.json`
 - `src/utils/logger.ts`: logs padronizados
 
@@ -108,16 +108,30 @@ PORT=3000
 GROQ_API_KEY=
 GROQ_MODEL=openai/gpt-oss-120b
 GROQ_MAX_COMPLETION_TOKENS=800
+GROQ_CONVERSATIONAL_TEMPERATURE=0.55
+GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS=320
+GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS=220
+GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS=220
+FOLLOWUP_HISTORY_MESSAGES=12
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_PREFIX=pjf
 
-INTEGRACAO_API__URL=http://sos-jf.ddns.net/api/
-INTEGRACAO_API__X_API_KEY=
 SWAGGER_PATH=docs
 ```
+
+Referência das variáveis de IA e contexto:
+
+| Variável                                      | Padrão | Uso                                                                                             |
+| --------------------------------------------- | -----: | ----------------------------------------------------------------------------------------------- |
+| `GROQ_MAX_COMPLETION_TOKENS`                  |  `800` | Limite de tokens para classificação JSON (`generateCategorizedJson`).                           |
+| `GROQ_CONVERSATIONAL_TEMPERATURE`             | `0.55` | Criatividade das mensagens conversacionais (`request_details`, `general_guidance`, follow-ups). |
+| `GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS`   |  `320` | Limite de tokens das mensagens conversacionais.                                                 |
+| `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`   |  `220` | Limite de tokens da confirmação humanizada no fluxo categorizado.                               |
+| `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS` |  `220` | Limite de tokens da confirmação humanizada no fluxo genérico de continuidade.                   |
+| `FOLLOWUP_HISTORY_MESSAGES`                   |   `12` | Quantidade de mensagens recentes enviada como contexto no follow-up.                            |
 
 ### Regras Redis
 
@@ -207,7 +221,7 @@ Após cada atendimento concluído, o worker envia:
 
 Interpretação de resposta:
 
-- intenção positiva (`sim`, `claro`, `pode`, `continuar`, `prosseguir`) -> abre um novo ciclo e reenvia o menu inicial
+- intenção positiva (`sim`, `claro`, `pode`, `continuar`, `continue`, `continua`, `prossiga`, `prosseguir`, `prossegue`, `seguir`, `siga`) -> abre um novo ciclo e reenvia o menu inicial
 - intenção de encerramento (`não`, `nao`, `encerrar`, `0`, `obrigado`, `valeu` e variações) -> encerra
 - outros textos -> prompt curto humanizado pedindo confirmação (`sim`/`não`)
 
@@ -230,6 +244,15 @@ Tipos de job (`IncidentJobData`):
   - sem `service`
 
 ## IA (Groq)
+
+Parâmetros configuráveis de contexto/resposta:
+
+- `GROQ_MAX_COMPLETION_TOKENS`: limite geral de tokens da classificação JSON.
+- `GROQ_CONVERSATIONAL_TEMPERATURE`: temperatura das mensagens conversacionais.
+- `GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS`: limite de tokens para mensagens conversacionais.
+- `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`: limite de tokens da mensagem humanizada pós-triagem categorizada.
+- `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS`: limite de tokens da mensagem humanizada no follow-up genérico.
+- `FOLLOWUP_HISTORY_MESSAGES`: quantidade de mensagens recentes enviada ao modelo no fluxo de continuidade.
 
 ### Fluxo categorizado (menu 1-9)
 
@@ -300,21 +323,18 @@ Serviço: `src/integracao-api/integracao-api.service.ts`
 
 Status atual:
 
-- envio HTTP real está depreciado
-- `sendAiResponse(...)` atualmente faz preview e `console.log` do JSON final
+- envio HTTP real habilitado
+- `sendAiResponse(...)` faz `POST` para `https://api.durch.com.br/sos-jf/ocorrencia`
 
-Log gerado:
+Momento do envio:
 
-- `[INTEGRACAO_API][PREVIEW_JSON] { ... }`
+- imediatamente após o JSON da IA ser enviado no WhatsApp
 
 Payload inclui:
 
-- `phone`
-- `nome_contato` (nome completo sem acento)
-- `service` (quando categorizado)
-- `aiResponse` (mesmo JSON enviado ao usuário)
-- `mediaPath`
-- `timestamp`
+- `ocorrencia`
+- `linkDaMidia` (quando houver mídia)
+- `payloadIa` (JSON da IA, enviado como objeto)
 
 ## Persistência local
 
@@ -336,7 +356,7 @@ Payload inclui:
 - `[WA] media persisted`
 - `[QUEUE] failed to append metadata to ai json` (somente em falha de hash/metadado)
 - `[WA] response sent`
-- `[INTEGRACAO_API][PREVIEW_JSON] ...`
+- `[INTEGRACAO_API] payload sent`
 
 Observação operacional:
 
@@ -402,3 +422,7 @@ Foram adicionados testes de regressão para os fluxos críticos recentes:
 ## Observação sobre código legado
 
 Existe uma implementação antiga em `src/whatsapp/*` (gateway e serviço antigos). O fluxo em produção atual está em `src/bot/*`, que é o módulo importado pelo `AppModule`.
+
+## Observação sobre o código
+
+Existe um repositório diferente contendo o código fonte todo do projeto feito em NestJS. Por questões de segurança e privacidade, este código não estará disponível para visualização.

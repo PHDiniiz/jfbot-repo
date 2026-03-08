@@ -82,7 +82,7 @@ pnpm start:prod
 
 ## Contribuição
 
-- Consulte [CONTRIBUTING.md](/home/phdiniz/projects/jfbot-repo/CONTRIBUTING.md) para abrir issues e enviar PRs.
+- Consulte [CONTRIBUTING.md](/home/phdiniz/projects/wbjf-api/CONTRIBUTING.md) para abrir issues e enviar PRs.
 - Push direto em `main` deve permanecer bloqueado; merge em `main` ocorre via PR com revisão.
 
 ## Swagger (OpenAPI)
@@ -113,7 +113,8 @@ GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS=320
 GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS=220
 GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS=220
 FOLLOWUP_HISTORY_MESSAGES=12
-SERVER_IDLE_RESTART_MINUTES=30
+CONVERSATION_INACTIVITY_TIMEOUT_MINUTES=15
+SERVER_IDLE_RESTART_MINUTES=0
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -121,6 +122,7 @@ REDIS_PASSWORD=
 REDIS_PREFIX=pjf
 
 SWAGGER_PATH=docs
+BACKEND_PUBLIC_URL="https://abcd-ec2.exemplo.com.br"
 ```
 
 Referência das variáveis de IA e contexto:
@@ -133,7 +135,9 @@ Referência das variáveis de IA e contexto:
 | `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`   |  `220` | Limite de tokens da confirmação humanizada no fluxo categorizado.                               |
 | `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS` |  `220` | Limite de tokens da confirmação humanizada no fluxo genérico de continuidade.                   |
 | `FOLLOWUP_HISTORY_MESSAGES`                   |   `12` | Quantidade de mensagens recentes enviada como contexto no follow-up.                            |
-| `SERVER_IDLE_RESTART_MINUTES`                 |   `30` | Reinício automático do processo sem interação de usuários (30 minutos).                         |
+| `CONVERSATION_INACTIVITY_TIMEOUT_MINUTES`     |    `5` | Tempo de inatividade (minutos) para encerrar a conversa automaticamente.                        |
+| `SERVER_IDLE_RESTART_MINUTES`                 |    `0` | Reinício automático após inatividade do servidor (em minutos). `0` ou vazio desativa.           |
+| `BACKEND_PUBLIC_URL`                          |    `-` | Base pública usada para montar `linkDaMidia` no formato `/public/assets/media/{media_hash}`.    |
 
 ### Regras Redis
 
@@ -336,12 +340,12 @@ Payload inclui:
 
 - `ocorrencia`
 - `linkDaMidia` (quando houver mídia)
-- `payloadIa` (JSON da IA, enviado como objeto)
+- `payloadIa` (JSON da IA serializado em string formatada)
 
 Observações:
 
-- URL de integração hardcoded no serviço: `https://api.durch.com.br/sos-jf/ocorrencia`.
-- `INTEGRACAO_API__X_API_KEY` não é mais usado no `wbjf-api`.
+- URL de integração no serviço: `https://api.durch.com.br/sos-jf/ocorrencia`.
+- `linkDaMidia` usa `BACKEND_PUBLIC_URL` + `/public/assets/media/{media_hash}` quando `media_hash` existir no `payloadIa`.
 
 ## Persistência local
 

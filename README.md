@@ -57,7 +57,7 @@ Fluxo principal:
 ## Requisitos
 
 - Node.js 20+
-- pnpm 9+
+- pnpm 10+
 - Redis acessível
 
 ## Instalação e execução
@@ -79,6 +79,13 @@ Build de produção:
 pnpm build
 pnpm start:prod
 ```
+
+## Swagger (OpenAPI)
+
+Swagger está habilitado no bootstrap do NestJS.
+
+- URL padrão local: `http://localhost:3000/docs`
+- caminho configurável por variável: `SWAGGER_PATH`
 
 ## Variáveis de ambiente
 
@@ -104,6 +111,7 @@ REDIS_PREFIX=pjf
 
 INTEGRACAO_API__URL=http://sos-jf.ddns.net/api/
 INTEGRACAO_API__X_API_KEY=
+SWAGGER_PATH=docs
 ```
 
 ### Regras Redis

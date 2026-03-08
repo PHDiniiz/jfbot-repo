@@ -314,6 +314,9 @@ Payload inclui:
 
 - Sessão/auth do WhatsApp: `./auth/auth.json`
 - Mídias recebidas: `./public/assets/media/`
+- Histórico de conversa por telefone: `./conversations/{telefone}.json`
+  - inclui mensagens de entrada (`role: "user"`) e saída (`role: "bot"`)
+  - cada arquivo contém timestamps para auditoria do fluxo com IA/Bot
 
 ## Logs operacionais esperados
 
@@ -328,6 +331,11 @@ Payload inclui:
 - `[QUEUE] failed to append metadata to ai json` (somente em falha de hash/metadado)
 - `[WA] response sent`
 - `[INTEGRACAO_API][PREVIEW_JSON] ...`
+
+Observação operacional:
+
+- o bot processa `messages.upsert` dos tipos `notify` e `append`
+- isso evita perda de resposta após logs como `Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer`
 
 ## Troubleshooting
 

@@ -348,6 +348,22 @@ Checklist:
 
 Há proteção de deduplicação de eventos recebidos por `messageId` em memória no `WhatsAppService`.
 
+## Testes de regressão
+
+Foram adicionados testes de regressão para os fluxos críticos recentes:
+
+- `src/bot/whatsapp.service.regression.spec.ts`
+  - parsing de opções `0-9`
+  - comando `menu`
+  - interpretação de vítimas (`sem vítimas` / `com vítimas`)
+  - template inicial com aviso de 5 minutos
+- `src/groq/groq.service.regression.spec.ts`
+  - mensagem de dados faltantes com quebras de linha e formato de envio
+  - mensagem de inatividade em 5 minutos
+- `src/queue/incident.worker.regression.spec.ts`
+  - protocolo numérico de 10 dígitos sem repetição imediata
+  - inclusão de `protocolo_atendimento` e `media_hash` no JSON final
+
 ## Estado atual das opções do menu
 
 - `1 Defesa Civil`: ativo com IA + coleta obrigatória

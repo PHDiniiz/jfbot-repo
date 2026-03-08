@@ -1,0 +1,42 @@
+name: Setup Branch Protection
+
+# Pré-requisito: crie um Personal Access Token (PAT) com escopo "repo" (classic)
+# ou a permissão "Administration: Read and write" (fine-grained) e salve-o como
+# secret ADMIN_TOKEN nas configurações do repositório
+# (Settings → Secrets and variables → Actions → New repository secret).
+#
+# O GITHUB_TOKEN padrão não possui as permissões necessárias para modificar
+# regras de proteção de branch.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  protect-main:
+    name: Enforce branch protection on main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply branch protection rules to main
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            await github.rest.repos.updateBranchProtection({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              branch: 'main',
+              required_status_checks: null,
+              enforce_admins: false,
+              required_pull_request_reviews: {
+                dismiss_stale_reviews: true,
+                require_code_owner_reviews: false,
+                required_approving_review_count: 1,
+              },
+              restrictions: null,
+              allow_force_pushes: false,
+              allow_deletions: false,
+              block_creations: false,
+            });
+            console.log('Branch protection applied to main successfully.');

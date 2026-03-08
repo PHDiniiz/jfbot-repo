@@ -262,6 +262,7 @@ Método: `generateReply(message)`
 - classificador genérico com mapeamento de categorias no prompt
 - normalização de campos obrigatórios
 - fallback textual em falha
+- quando o usuário retorna com novas informações, o worker envia para a IA a mensagem atual + histórico recente de mensagens do usuário (`conversations/{telefone}.json`) para manter contexto
 
 ### Mensagens humanizadas
 

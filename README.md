@@ -304,7 +304,7 @@ Log gerado:
 Payload inclui:
 
 - `phone`
-- `nome_contato` (primeiro nome sem acento)
+- `nome_contato` (nome completo sem acento)
 - `service` (quando categorizado)
 - `aiResponse` (mesmo JSON enviado ao usuário)
 - `mediaPath`

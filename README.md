@@ -80,6 +80,11 @@ pnpm build
 pnpm start:prod
 ```
 
+## Contribuição
+
+- Consulte [CONTRIBUTING.md](/home/phdiniz/projects/wbjf-api/CONTRIBUTING.md) para abrir issues e enviar PRs.
+- Push direto em `main` deve permanecer bloqueado; merge em `main` ocorre via PR com revisão.
+
 ## Swagger (OpenAPI)
 
 Swagger está habilitado no bootstrap do NestJS.

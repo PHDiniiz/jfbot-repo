@@ -91,6 +91,68 @@ pnpm start:prod
 - Consulte [CONTRIBUTING.md](/home/phdiniz/projects/wbjf-api/CONTRIBUTING.md) para abrir issues e enviar PRs.
 - Push direto em `main` deve permanecer bloqueado; merge em `main` ocorre via PR com revisão.
 
+## Deploy (GitHub Actions)
+
+Workflow: `.github/workflows/deploy.yml`
+
+- gatilhos: `push` em `main` e `workflow_dispatch`
+- etapas:
+  - build no GitHub Actions (`pnpm install --frozen-lockfile` + `pnpm run build`)
+  - sincronização dos arquivos para o servidor via `rsync` sobre SSH
+  - execução remota de comandos via SSH (install/build/restart)
+
+Secrets obrigatórios:
+
+- `SSH_HOST`
+- `SSH_USER`
+- `SSH_PRIVATE_KEY`
+- `DEPLOY_PATH`
+
+Secrets opcionais:
+
+- `SSH_PORT` (default `22`)
+- `REMOTE_INSTALL_CMD` (default `pnpm install --frozen-lockfile --prod=false`)
+- `REMOTE_BUILD_CMD` (default `pnpm run build`)
+- `REMOTE_RESTART_CMD` (default `echo 'No restart command configured'`)
+
+### Como gerar e configurar a chave SSH (servidor + GitHub)
+
+1. No servidor, gere um par de chaves para o deploy:
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/github_actions_deploy -N ""
+```
+
+2. Autorize a chave pública para o usuário que receberá o deploy:
+
+```bash
+cat ~/.ssh/github_actions_deploy.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/authorized_keys
+```
+
+3. Copie a chave privada para cadastrar no GitHub:
+
+```bash
+cat ~/.ssh/github_actions_deploy
+```
+
+4. No GitHub do repositório:
+   - abra `Settings` -> `Secrets and variables` -> `Actions`
+   - clique em `New repository secret`
+   - crie `SSH_PRIVATE_KEY` colando o conteúdo completo da chave privada
+   - crie também:
+     - `SSH_HOST` (IP ou domínio do servidor)
+     - `SSH_USER` (usuário SSH no servidor)
+     - `DEPLOY_PATH` (pasta de destino no servidor)
+     - `SSH_PORT` (opcional, se diferente de `22`)
+
+5. Valide a conexão manualmente antes do primeiro deploy:
+
+```bash
+ssh -i ~/.ssh/github_actions_deploy <SSH_USER>@<SSH_HOST> -p <SSH_PORT>
+```
+
 ## Swagger (OpenAPI)
 
 Swagger está habilitado no bootstrap do NestJS.
@@ -133,6 +195,8 @@ WA_LOCAL_OUTBOX_RETRY_INTERVAL_MS=15000
 
 SWAGGER_PATH=docs
 BACKEND_PUBLIC_URL="https://abcd-ec2.exemplo.com.br"
+SOS_JF_ENDPOINT_URL="http://sos-jf.ddns.net/v1/wbjf/"
+INTEGRACAO_API_KEY=
 ```
 
 Referência das variáveis de IA e contexto:
@@ -151,6 +215,9 @@ Referência das variáveis de IA e contexto:
 | `WA_LOCAL_OUTBOX_FILE`                        | `var/incident-outbox.json` | Arquivo local durável para fallback de jobs quando enqueue no Redis/fila falhar.                |
 | `WA_LOCAL_OUTBOX_RETRY_INTERVAL_MS`           |                    `15000` | Intervalo de retentativa (ms) para reenfileirar jobs salvos no outbox local.                    |
 | `BACKEND_PUBLIC_URL`                          |                        `-` | Base pública usada para montar `linkDaMidia` no formato `/public/assets/media/{media_hash}`.    |
+| `SOS_JF_ENDPOINT_URL`                         |                        `-` | Endpoint principal de integração externa (`POST`).                                              |
+| `INTEGRACAO_ENDPOINT_URL`                     |                        `-` | Fallback legado de endpoint quando `SOS_JF_ENDPOINT_URL` não estiver definido.                  |
+| `INTEGRACAO_API_KEY`                          |                        `-` | Chave enviada no header HTTP `X-API-KEY` da integração externa.                                 |
 
 ### Regras Redis
 
@@ -242,9 +309,12 @@ Regras:
 
 ### 5) Inatividade
 
-Se houver inatividade de 5 minutos, o usuário é avisado:
+Se houver inatividade de 5 minutos:
 
 - `Encerramos sua solicitação devido à inatividade de 5 minutos. Pode continuar por aqui normalmente.`
+- o estado da conversa é encerrado e volta para `awaiting_option`
+- para retomar, o usuário deve enviar `menu` ou uma opção `1..9`
+- se a primeira mensagem após expiração já for `1..9`, o bot reaproveita a opção na mesma mensagem (sem exigir reenvio)
 
 ### 6) Follow-up pós-atendimento
 
@@ -285,9 +355,11 @@ Tipos de job (`IncidentJobData`):
   - usado para menu 1-9
   - inclui `service` de contexto selecionado no menu
   - inclui `enderecoCompleto` para metadados finais e integração externa
+  - envia payload para integração externa (`durch_api`)
 - `followup_generic`
   - usado no fluxo de continuidade
   - sem `service`
+  - não envia para integração externa
 
 ## IA
 
@@ -379,14 +451,15 @@ Serviço: `src/integracao-api/integracao-api.service.ts`
 Status atual:
 
 - envio HTTP real habilitado
-- `sendAiResponse(...)` faz `POST` para `https://api.durch.com.br/sos-jf/ocorrencia`
+- `sendAiResponse(...)` faz `POST` para `SOS_JF_ENDPOINT_URL` (ou `INTEGRACAO_ENDPOINT_URL` como fallback legado)
 
 Momento do envio:
 
-- imediatamente após o JSON da IA ser enviado no WhatsApp
+- imediatamente após o JSON da IA ser enviado no WhatsApp, apenas para fluxo `categorized`
 
 Payload inclui:
 
+- `phone`
 - `ocorrencia`
 - `endereco_completo` (quando presente no JSON da IA ou no input do worker)
 - `linkDaMidia` (quando houver mídia)
@@ -394,8 +467,10 @@ Payload inclui:
 
 Observações:
 
-- URL de integração no serviço: `https://api.durch.com.br/sos-jf/ocorrencia`.
+- Header de autenticação: `X-API-KEY` (valor de `INTEGRACAO_API_KEY`).
+- URL padrão de fallback no código: `http://sos-jf.ddns.net/v1/wbjf/`.
 - `linkDaMidia` usa `BACKEND_PUBLIC_URL` + `/public/assets/media/{media_hash}` quando `media_hash` existir no `payloadIa`.
+- enriquecimento de metadados é resiliente: falha ao gerar `media_hash` não remove `protocolo_atendimento` nem `endereco_completo`.
 
 ## Persistência local
 
@@ -415,6 +490,7 @@ Observações:
 - `[DEDUP] updated reports`
 - `[WA] media detected`
 - `[WA] media persisted`
+- `[QUEUE] failed to generate media_hash` (somente quando não for possível ler o arquivo de mídia)
 - `[QUEUE] failed to append metadata to ai json` (somente em falha de hash/metadado)
 - `[WA] response sent`
 - `[INTEGRACAO_API] payload sent`

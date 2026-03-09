@@ -21,6 +21,13 @@ Sem banco de dados relacional no momento. O estado operacional é persistido em 
 - BullMQ
 - pnpm
 
+## Tomada de decisões em Regras de negócio
+
+- Eu, como desenvolvedor, fui obrigado a tomar algumas regras de negócio como padrão por ter pensado este bot para "Emergências e SOS".
+  Apliquei regra de duração máxima de atendimento para 5 minutos, a fim de tornar eficiente em caso de socorro ou risco de vida.
+  Alguns fluxos foram fixados para não utilização de IA e os que utilizam, utilizam seu próprio prompt. Isso torna o "atendimento" mais eficiente e dinâmico por áreas de atuação.
+- (Se houver outros casos como este, podem descrever e gerar a PR para atualização.)
+
 ## Arquitetura Ativa
 
 `AppModule` atual importa:
@@ -218,11 +225,10 @@ Regras:
 - Template atual de pendências:
   - `Estou com você e já vou dar sequência 🙏`
   - `Para continuar, preciso destes dados agora. Ainda faltam:`
-  - `-- Endereço completo (com número aproximado) ou sua Localização do WhatsApp.`
-  - `-- Vítimas?`
-  - `- Sim/Não/Não sei`
-  - `-- Enviar imagem ou vídeo (obrigatório):`
-  - `- Imagem ou Vídeo: envie foto aqui no chat mesmo.`
+  - `- Endereço completo (com número aproximado)`
+  - `ou sua Localização do WhatsApp.`
+  - `- Vítimas? Sim/Não/Não sei`
+  - `- Enviar imagem ou vídeo (obrigatório) aqui no chat mesmo.`
 - Mídia é salva em `./public/assets/media/{uuid}.{ext}`.
 - Se o usuário enviar apenas mídia (sem texto), a mídia é aceita e o bot solicita somente os campos restantes.
 - Quando o endereço estiver pendente apenas por número, o bot envia:
@@ -499,10 +505,6 @@ pnpm -s eslint src/bot/conversation-session.service.regression.spec.ts src/bot/w
 - `8 Procon`: ativo com IA + coleta obrigatória
 - `9 Secretaria de Comunicação`: ativo com IA + coleta obrigatória
 - `0 Encerrar`: encerra conversa imediatamente
-
-## Observação sobre código legado
-
-Existe uma implementação antiga em `src/whatsapp/*` (gateway e serviço antigos). O fluxo em produção atual está em `src/bot/*`, que é o módulo importado pelo `AppModule`.
 
 ## Observação sobre o código 🔐
 

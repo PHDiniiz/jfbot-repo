@@ -1,6 +1,6 @@
 # JFBot
 
-Bot de atendimento via WhatsApp com NestJS + processamento assíncrono com BullMQ/Redis e classificação por IA (Groq).
+Bot de atendimento via WhatsApp com NestJS + processamento assíncrono com BullMQ/Redis e classificação por IA.
 
 ## Objetivo
 
@@ -19,7 +19,6 @@ Sem banco de dados relacional no momento. O estado operacional é persistido em 
 - TypeScript
 - Redis (ioredis)
 - BullMQ
-- Groq SDK
 - pnpm
 
 ## Arquitetura Ativa
@@ -115,11 +114,15 @@ GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS=220
 FOLLOWUP_HISTORY_MESSAGES=12
 CONVERSATION_INACTIVITY_TIMEOUT_MINUTES=15
 SERVER_IDLE_RESTART_MINUTES=0
+REVERSE_GEOCODE_CACHE_TTL_MS=600000
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 REDIS_PASSWORD=
 REDIS_PREFIX=pjf
+REDIS_DISABLED=false
+WA_LOCAL_OUTBOX_FILE=var/incident-outbox.json
+WA_LOCAL_OUTBOX_RETRY_INTERVAL_MS=15000
 
 SWAGGER_PATH=docs
 BACKEND_PUBLIC_URL="https://abcd-ec2.exemplo.com.br"
@@ -127,17 +130,20 @@ BACKEND_PUBLIC_URL="https://abcd-ec2.exemplo.com.br"
 
 Referência das variáveis de IA e contexto:
 
-| Variável                                      | Padrão | Uso                                                                                             |
-| --------------------------------------------- | -----: | ----------------------------------------------------------------------------------------------- |
-| `GROQ_MAX_COMPLETION_TOKENS`                  |  `800` | Limite de tokens para classificação JSON (`generateCategorizedJson`).                           |
-| `GROQ_CONVERSATIONAL_TEMPERATURE`             | `0.55` | Criatividade das mensagens conversacionais (`request_details`, `general_guidance`, follow-ups). |
-| `GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS`   |  `320` | Limite de tokens das mensagens conversacionais.                                                 |
-| `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`   |  `220` | Limite de tokens da confirmação humanizada no fluxo categorizado.                               |
-| `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS` |  `220` | Limite de tokens da confirmação humanizada no fluxo genérico de continuidade.                   |
-| `FOLLOWUP_HISTORY_MESSAGES`                   |   `12` | Quantidade de mensagens recentes enviada como contexto no follow-up.                            |
-| `CONVERSATION_INACTIVITY_TIMEOUT_MINUTES`     |    `5` | Tempo de inatividade (minutos) para encerrar a conversa automaticamente.                        |
-| `SERVER_IDLE_RESTART_MINUTES`                 |    `0` | Reinício automático após inatividade do servidor (em minutos). `0` ou vazio desativa.           |
-| `BACKEND_PUBLIC_URL`                          |    `-` | Base pública usada para montar `linkDaMidia` no formato `/public/assets/media/{media_hash}`.    |
+| Variável                                      |                     Padrão | Uso                                                                                             |
+| --------------------------------------------- | -------------------------: | ----------------------------------------------------------------------------------------------- |
+| `GROQ_MAX_COMPLETION_TOKENS`                  |                      `800` | Limite de tokens para classificação JSON (`generateCategorizedJson`).                           |
+| `GROQ_CONVERSATIONAL_TEMPERATURE`             |                     `0.55` | Criatividade das mensagens conversacionais (`request_details`, `general_guidance`, follow-ups). |
+| `GROQ_CONVERSATIONAL_MAX_COMPLETION_TOKENS`   |                      `320` | Limite de tokens das mensagens conversacionais.                                                 |
+| `GROQ_HUMAN_FOLLOWUP_MAX_COMPLETION_TOKENS`   |                      `220` | Limite de tokens da confirmação humanizada no fluxo categorizado.                               |
+| `GROQ_GENERIC_FOLLOWUP_MAX_COMPLETION_TOKENS` |                      `220` | Limite de tokens da confirmação humanizada no fluxo genérico de continuidade.                   |
+| `FOLLOWUP_HISTORY_MESSAGES`                   |                       `12` | Quantidade de mensagens recentes enviada como contexto no follow-up.                            |
+| `CONVERSATION_INACTIVITY_TIMEOUT_MINUTES`     |                        `5` | Tempo de inatividade (minutos) para encerrar a conversa automaticamente.                        |
+| `SERVER_IDLE_RESTART_MINUTES`                 |                        `0` | Reinício automático após inatividade do servidor (em minutos). `0` ou vazio desativa.           |
+| `REVERSE_GEOCODE_CACHE_TTL_MS`                |                   `600000` | TTL do cache de reverse geocode (em ms) para coordenadas repetidas.                             |
+| `WA_LOCAL_OUTBOX_FILE`                        | `var/incident-outbox.json` | Arquivo local durável para fallback de jobs quando enqueue no Redis/fila falhar.                |
+| `WA_LOCAL_OUTBOX_RETRY_INTERVAL_MS`           |                    `15000` | Intervalo de retentativa (ms) para reenfileirar jobs salvos no outbox local.                    |
+| `BACKEND_PUBLIC_URL`                          |                        `-` | Base pública usada para montar `linkDaMidia` no formato `/public/assets/media/{media_hash}`.    |
 
 ### Regras Redis
 
@@ -145,9 +151,13 @@ Referência das variáveis de IA e contexto:
 - Comportamento atual:
   - se `REDIS_PREFIX` não existir: usa padrão `pjf`
   - se `REDIS_PREFIX` for vazio: desativa prefixo de chaves Redis
+- `REDIS_DISABLED=true` força modo totalmente em memória (sem uso de Redis).
 - `REDIS_PASSWORD` é obrigatório quando `REDIS_HOST` não é `localhost` nem `127.0.0.1`.
 - Log de sucesso da conexão:
   - `[REDIS] Connected host=... port=...`
+- Se Redis ficar offline durante uma conversa:
+  - aquela conversa entra em modo offline (memória)
+  - ao retornar o Redis, as alterações pendentes dessa conversa são sincronizadas automaticamente (set/del com TTL)
 
 ## Fluxo conversacional (WhatsApp)
 
@@ -203,9 +213,22 @@ Antes de enviar para IA, exige:
 Regras:
 
 - Se o endereço já vier na descrição inicial, não solicita novamente esse campo.
-- Se faltar algo, retorna apenas pendências faltantes.
+- Se o usuário enviar coordenadas (texto/link/localização do WhatsApp), o bot resolve para endereço aproximado.
+- Se faltar algo, retorna apenas pendências faltantes em uma única mensagem (sem quebrar em múltiplos chunks).
+- Template atual de pendências:
+  - `Estou com você e já vou dar sequência 🙏`
+  - `Para continuar, preciso destes dados agora. Ainda faltam:`
+  - `-- Endereço completo (com número aproximado) ou sua Localização do WhatsApp.`
+  - `-- Vítimas?`
+  - `- Sim/Não/Não sei`
+  - `-- Enviar imagem ou vídeo (obrigatório):`
+  - `- Imagem ou Vídeo: envie foto aqui no chat mesmo.`
 - Mídia é salva em `./public/assets/media/{uuid}.{ext}`.
 - Se o usuário enviar apenas mídia (sem texto), a mídia é aceita e o bot solicita somente os campos restantes.
+- Quando o endereço estiver pendente apenas por número, o bot envia:
+  - `" {endereço atual/base} "`
+  - `Se o endereço estiver correto, informe apenas o número correto do endereço.`
+- `endereco_completo` final é normalizado para endereço + número (quando houver base de endereço); número isolado não é aceito como endereço completo.
 - Mapeamento de vítimas para `pessoas_afetadas`:
   - `Sim` = 1
   - `Não` = 0
@@ -239,17 +262,28 @@ Fila:
 - tentativas por job: `3`
 - backoff: exponencial (`2s`)
 - worker concurrency: `5`
+- timeout de enqueue no produtor (WhatsApp): `10s`
+- fallback local persistente quando Redis/fila estiver indisponível:
+  - arquivo padrão: `var/incident-outbox.json`
+  - reenvio automático em background: a cada `15s` (padrão)
+  - ao falhar enqueue, o job é salvo localmente e reenviado quando a fila voltar
+
+Variáveis do outbox local:
+
+- `WA_LOCAL_OUTBOX_FILE` (default: `var/incident-outbox.json`)
+- `WA_LOCAL_OUTBOX_RETRY_INTERVAL_MS` (default: `15000`)
 
 Tipos de job (`IncidentJobData`):
 
 - `categorized`
   - usado para menu 1-9
   - inclui `service` de contexto selecionado no menu
+  - inclui `enderecoCompleto` para metadados finais e integração externa
 - `followup_generic`
   - usado no fluxo de continuidade
   - sem `service`
 
-## IA (Groq)
+## IA
 
 Parâmetros configuráveis de contexto/resposta:
 
@@ -269,6 +303,7 @@ Método: `generateCategorizedJson({ service, message })`
 - JSON final inclui:
   - `protocolo_atendimento` (numérico, 10 dígitos, não repetido em memória do worker)
   - `media_hash` (SHA-256 da mídia persistida com extensão, ex.: `{hash}.{ext}`)
+  - `endereco_completo` (endereço do usuário já com número, quando disponível)
 - valida JSON e normaliza schema
 - fallback controlado em caso de erro/JSON inválido
 
@@ -285,9 +320,17 @@ Schema esperado:
   "animais_afetados": 0,
   "risco_imediato": false,
   "protocolo_atendimento": "1234567890",
-  "media_hash": "abc123...def456.jpg"
+  "media_hash": "abc123...def456.jpg",
+  "endereco_completo": "Rua Exemplo, 123, Bairro Exemplo"
 }
 ```
+
+Observação de classificação:
+
+- O mapeamento de `orgao_responsavel` é determinístico pelo prompt/código.
+- Atualmente não existe `Polícia Militar` no contrato de tipos/categorias.
+- Mensagens como `roubaram minha casa` tendem a cair em `OUTROS`, portanto `Secretaria de Comunicação`.
+- Se houver decisão de negócio para encaminhar segurança pública, será necessário alterar categoria/tipos/prompt e integração.
 
 ### Fluxo genérico (follow-up)
 
@@ -339,6 +382,7 @@ Momento do envio:
 Payload inclui:
 
 - `ocorrencia`
+- `endereco_completo` (quando presente no JSON da IA ou no input do worker)
 - `linkDaMidia` (quando houver mídia)
 - `payloadIa` (JSON da IA serializado em string formatada)
 
@@ -406,17 +450,42 @@ Há proteção de deduplicação de eventos recebidos por `messageId` em memóri
 
 Foram adicionados testes de regressão para os fluxos críticos recentes:
 
+- `src/bot/conversation-session.service.regression.spec.ts`
+  - fallback em memória quando Redis fica indisponível
+  - sincronização de pendências para Redis após recuperação
+  - compatibilidade com estado legado de coleta obrigatória
 - `src/bot/whatsapp.service.regression.spec.ts`
   - parsing de opções `0-9`
   - comando `menu`
   - interpretação de vítimas (`sem vítimas` / `com vítimas`)
   - template inicial com aviso de 5 minutos
+  - número isolado não é aceito como endereço completo
+  - `endereco_completo` é montado como base + número quando necessário
 - `src/groq/groq.service.regression.spec.ts`
-  - mensagem de dados faltantes com quebras de linha e formato de envio
+  - mensagem de dados faltantes em template único padronizado
+  - ausência de instrução de mídia quando mídia não está pendente
   - mensagem de inatividade em 5 minutos
 - `src/queue/incident.worker.regression.spec.ts`
   - protocolo numérico de 10 dígitos sem repetição imediata
-  - inclusão de `protocolo_atendimento` e `media_hash` no JSON final
+  - inclusão de `protocolo_atendimento`, `media_hash` e `endereco_completo` no JSON final
+
+### Qualidade de código (lint)
+
+Lint validado para os arquivos críticos de fluxo e regressão:
+
+- `src/bot/conversation-session.service.regression.spec.ts`
+- `src/bot/whatsapp.service.regression.spec.ts`
+- `src/bot/whatsapp.service.ts`
+- `src/groq/groq.service.regression.spec.ts`
+- `src/main.ts`
+- `src/queue/incident.worker.regression.spec.ts`
+- `src/storage/auth.store.ts`
+
+Comando utilizado:
+
+```bash
+pnpm -s eslint src/bot/conversation-session.service.regression.spec.ts src/bot/whatsapp.service.regression.spec.ts src/bot/whatsapp.service.ts src/groq/groq.service.regression.spec.ts src/main.ts src/queue/incident.worker.regression.spec.ts src/storage/auth.store.ts
+```
 
 ## Estado atual das opções do menu
 
